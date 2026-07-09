@@ -18,12 +18,14 @@ pip install -r requirements.txt
 
 * `./util/mesh.py`, we generate ED-Graph related methods here.
 
+* `./util/obj_io.py`, custom obj io, with debug and visulization of EDGraph.
+
 
 ## Usage example
 Use like `nrd.py`, example and related picture will be updated later.
 
 ## Citation
-If you find this projects useful, considering citing:
+If you find this project useful, considering citing:
 ```
 @incollection{sumner2007embedded,
   title={Embedded deformation for shape manipulation},
