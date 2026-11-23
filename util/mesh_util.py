@@ -1,12 +1,51 @@
 import torch
 import torch.nn.functional as F
 
+try:
+    from pytorch3d.ops import knn_points as _pytorch3d_knn_points
+except ImportError:
+    _pytorch3d_knn_points = None
+
+
+def knn_points(p1, p2, K=1, chunk_size=4096):
+    """K-nearest neighbors returning (dists_sq, idx, None), compatible with pytorch3d.ops.knn_points.
+
+    Uses PyTorch3D's CUDA kernel when installed, otherwise falls back to chunked pure-PyTorch search.
+    """
+    if _pytorch3d_knn_points is not None:
+        return _pytorch3d_knn_points(p1, p2, K=K)
+
+    B, N1, _ = p1.shape
+    _, N2, _ = p2.shape
+    k = min(K, N2)
+
+    dists_list = []
+    idx_list = []
+    for b in range(B):
+        pts1 = p1[b]
+        pts2 = p2[b]
+        b_dists = []
+        b_idx = []
+        for start in range(0, N1, chunk_size):
+            end = min(start + chunk_size, N1)
+            d = torch.cdist(pts1[start:end], pts2, p=2.0)
+            vals, inds = torch.topk(d, k=k, dim=-1, largest=False, sorted=True)
+            b_dists.append(vals.pow(2))
+            b_idx.append(inds)
+        dists_list.append(torch.cat(b_dists, dim=0))
+        idx_list.append(torch.cat(b_idx, dim=0))
+
+    dists = torch.stack(dists_list, dim=0)
+    idx = torch.stack(idx_list, dim=0)
+    return dists, idx, None
+
+
 def compute_normals(vertices, triangles):
     # Compute the face normals
     a = vertices[triangles.long()][:, 0, :]
     b = vertices[triangles.long()][:, 1, :]
     c = vertices[triangles.long()][:, 2, :]
-    face_normals = torch.nn.functional.normalize(torch.cross(b - a, c - a), p=2, dim=-1) 
+    face_normals = torch.nn.functional.normalize(torch.cross(b - a, c - a, dim=-1), p=2, dim=-1) 
 
     # Compute the vertex normals
     vertex_normals = torch.zeros_like(vertices)
@@ -61,7 +100,7 @@ def find_connected_faces(indices):
         face_correspondences[ei_unique, face_correspondences_indices[ei_unique]] = face_ids[ei] 
         face_correspondences_indices[ei_unique] += 1
 
-    return face_correspondences[counts == 2].long().to(device=indices.device)
+    return face_correspondences[counts.cpu() == 2].long().to(device=indices.device)
 
 def compute_laplacian_uniform(vertices, edges):
     """
@@ -176,19 +215,25 @@ def UniformSamplePoints(vertices, num, method='fps'):
     sample_indices = None
     sample_points = None
 
+    if num == 0:
+        sample_indices = torch.empty(0, dtype=torch.long, device=vertices.device)
+        return sample_indices, vertices[:0]
+    if num == total_num:
+        sample_indices = torch.arange(total_num - 1, -1, -1, dtype=torch.long, device=vertices.device)
+        return sample_indices, vertices[sample_indices]
+
     if method == 'fps':
-        startid = torch.randperm(total_num)[0]
+        startid = int(torch.randint(0, total_num, (1,)).item())
+        selected = torch.empty(num, dtype=torch.long, device=vertices.device)
+        selected[0] = startid
         distmatrix = torch.sum((vertices[startid] - vertices) ** 2, dim=1)
-        startset, remained = set([startid]), set(range(total_num)) - set([startid])
-        while len(startset) < num:
-            distmatrix[torch.LongTensor(list(startset))] = 0
-            select_index = torch.argmax(distmatrix).item()
+        for i in range(1, num):
+            distmatrix[selected[i - 1]] = -1.0
+            select_index = int(torch.argmax(distmatrix).item())
+            selected[i] = select_index
             curdist = torch.sum((vertices[select_index] - vertices) ** 2, dim=1)
-            mask = (curdist - distmatrix) < 0
-            distmatrix[mask] = curdist[mask]
-            startset.add(select_index)
-            remained.remove(select_index)
-        sample_indices = sorted(torch.LongTensor(list(startset)))[::-1]
+            distmatrix = torch.minimum(distmatrix, curdist)
+        sample_indices, _ = torch.sort(selected, descending=True)
         sample_points = vertices[sample_indices]
     else:
         pass

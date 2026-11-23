@@ -1,5 +1,0 @@
-numpy
-opencv-python
-torch
-git+https://github.com/NVlabs/nvdiffrast.git
-git+https://github.com/facebookresearch/pytorch3d.git@stable

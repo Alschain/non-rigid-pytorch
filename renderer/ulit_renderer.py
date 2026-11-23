@@ -72,21 +72,23 @@ class NvdiffrastMeshUlitRenderer(nn.Module):
         if type(intrinsic) == np.ndarray:
             intrinsic = torch.FloatTensor(intrinsic)
 
-        self.intrinsic = intrinsic.reshape(4,4)
+        self.intrinsic = intrinsic.reshape(4,4).to(self.device)
+        self.ndc_proj = None
 
     def set_camera_extrinsic(self, extrinsic):
         if type(extrinsic) == np.ndarray:
             extrinsic = torch.FloatTensor(extrinsic)
 
-        self.extrinsic = extrinsic.reshape(4,4)
+        self.extrinsic = extrinsic.reshape(4,4).to(self.device)
+        self.ndc_proj = None
 
     def calc_ndc_projection(self):
         P = self.calc_projection(
-            self.intrinsic[0][0], self.intrinsic[1][1],
-            self.intrinsic[0][2], self.intrinsic[1][2],
+            self.intrinsic[0][0].item(), self.intrinsic[1][1].item(),
+            self.intrinsic[0][2].item(), self.intrinsic[1][2].item(),
             self.render_size[1], self.render_size[0]
-            )
-        self.ndc_proj = torch.matmul(P, self.extrinsic).unsqueeze(0).to(self.device)
+            ).to(self.device)
+        self.ndc_proj = torch.matmul(P, self.extrinsic.to(self.device)).unsqueeze(0).to(self.device)
         return
       
     def calc_ndc_to_depth(self, ndc_z, near=0.1, far=20.0):

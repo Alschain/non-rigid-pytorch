@@ -4,15 +4,13 @@ from util.mesh import Mesh, DeformableMesh
 from util.obj_io import *
 from util.mesh_util import *
 
-from pytorch3d.ops import knn_points
-
 class NonRigidDeformer:
     def __init__(self, args):
         default_args = {
             # global
             'max_iter': 2000,
             'log_iter': 50,
-            'debug_dir': './debut_out',
+            'debug_dir': './debug_out',
             'dist_thres': 0.05,
             'dist_thres_lower': 0.0001,
             'lr':3e-5,
@@ -132,11 +130,11 @@ class NonRigidDeformer:
                 
                 if it == 0:
                     if p2p_dists.sum() > eps:
-                        p2p_init = 10 / p2p_dists.sum().item()
+                        p2plane_init = 10 / p2p_dists.sum().item()
                     else:
-                        p2p_init = 10000
+                        p2plane_init = 10000
 
-                losses['E_p2p'] = p2p_init * p2p_dists.sum()
+                losses['E_p2plane'] = p2plane_init * p2p_dists.sum()
 
             if self.args['E_fixable']:
                 fixable_mask = torch.logical_or(dist[0,:,0] > self.args['dist_thres'], dist[0,:,0] < self.args['dist_thres_lower'])
@@ -165,7 +163,7 @@ class NonRigidDeformer:
                 
                 losses['E_reg'] = 1000 * (self.args['E_reg_init'] / 1.5**((it+1)//self.args['E_reg_relax'])) * reg_dist.sum()
 
-            if self.args['E_corr'] and deformed['deformed_corrs'] is not None:
+            if self.args['E_corr'] and deformed.get('deformed_corrs') is not None:
                 corr_dist =\
                     torch.sum(
                     (deformed['deformed_corrs'] - deformed_mesh.target_corrs)**2,
@@ -201,3 +199,10 @@ class NonRigidDeformer:
                 debug_mesh.vs = deformed['deformed_vertices'].detach().clone()
                 debug_mesh.update_normal()
                 save_obj(os.path.join(self.args['debug_dir'], f'{it}.obj'), debug_mesh, verbose=False)
+
+        with torch.no_grad():
+            final_deformed = deformed_mesh.apply_deformation()
+            result_mesh = deformed_mesh.mesh.clone()
+            result_mesh.vs = final_deformed['deformed_vertices'].detach().clone()
+            result_mesh.update_normal()
+        return result_mesh

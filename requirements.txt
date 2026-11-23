@@ -1,0 +1,9 @@
+numpy
+opencv-python
+torch
+Pillow
+imageio
+
+# Optional GPU acceleration / differentiable rendering:
+# git+https://github.com/NVlabs/nvdiffrast.git
+# git+https://github.com/facebookresearch/pytorch3d.git@stable

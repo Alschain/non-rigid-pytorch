@@ -3,7 +3,6 @@ import torch.nn as nn
 import numpy as np
 
 from util.mesh_util import *
-from pytorch3d.ops import knn_points, knn_gather
 
 from queue import Queue
 from collections import namedtuple
@@ -168,12 +167,21 @@ class DeformableMesh:
             assert dists.shape[0] == self.mesh.vs.shape[0], "dist not match vertices"
             inside_mask = torch.nonzero(dists <= dist_thres)[...,0]
             outside_mask = torch.nonzero(dists > dist_thres)[...,0]
-            inside_node_num = min(torch.index_select(self.mesh.vs, 0, inside_mask).shape[0], inside_node_num)
-            node_num = min(torch.index_select(self.mesh.vs, 0, outside_mask).shape[0], node_num)
-            _, inside_nodes = UniformSamplePoints(torch.index_select(self.mesh.vs, 0, inside_mask), inside_node_num)
-            _, outside_nodes = UniformSamplePoints(torch.index_select(self.mesh.vs, 0, outside_mask), node_num)
+            sampled_groups = []
+            if inside_mask.numel() > 0:
+                inside_verts = torch.index_select(self.mesh.vs, 0, inside_mask)
+                inside_k = min(inside_verts.shape[0], inside_node_num)
+                if inside_k > 0:
+                    _, inside_nodes = UniformSamplePoints(inside_verts, inside_k)
+                    sampled_groups.append(inside_nodes)
+            if outside_mask.numel() > 0:
+                outside_verts = torch.index_select(self.mesh.vs, 0, outside_mask)
+                outside_k = min(outside_verts.shape[0], node_num)
+                if outside_k > 0:
+                    _, outside_nodes = UniformSamplePoints(outside_verts, outside_k)
+                    sampled_groups.append(outside_nodes)
 
-            self.EDNodes = torch.cat([inside_nodes, outside_nodes], dim=0)
+            self.EDNodes = torch.cat(sampled_groups, dim=0)
 
         # Step 2, construct EDNodes - EDNodes relation
         print("[DeformableMesh] Perform Node to Node skinning...")
@@ -212,7 +220,7 @@ class DeformableMesh:
             neigh_nodes = []
             neigh_nodes_dist = []
 
-            visited = np.zeros(vs.shape[0], dtype=np.bool8)
+            visited = np.zeros(vs.shape[0], dtype=bool)
             frontier = Queue()
             curr_vert = nearest_vert[i]
             curr_dist = np.linalg.norm(nodes[i] - vs[curr_vert])
@@ -275,7 +283,7 @@ class DeformableMesh:
             neigh_nodes = []
             neigh_nodes_dist = []
 
-            visited = np.zeros(vs.shape[0], dtype=np.bool8)
+            visited = np.zeros(vs.shape[0], dtype=bool)
             frontier = Queue()
             curr_vert = i
             curr_dist = 0.
@@ -391,14 +399,14 @@ class DeformableMesh:
 
             if self.corr is not None:
                 corr_num, corr_k = self.corr_e_relation.shape
-                corr_Rs = torch.index_select(self.Rs, dim=0, index=self.corr_e_relation.reshape(corr_num*corr_k)).reshape(corr_num, corr_k, 3, 3) # corr_num * corr_k, 3, 3
-                corr_Ts = torch.index_select(self.Ts, dim=0, index=self.corr_e_relation.reshape(corr_num*corr_k)).reshape(corr_num, corr_k, 3) # corr_num * corr_k, 3
+                corr_Rs = torch.index_select(self.Rs, dim=0, index=self.corr_e_relation.reshape(corr_num*corr_k)) # corr_num * corr_k, 3, 3
+                corr_Ts = torch.index_select(self.Ts, dim=0, index=self.corr_e_relation.reshape(corr_num*corr_k)) # corr_num * corr_k, 3
                 corr_EDNodes = torch.index_select(self.EDNodes, dim=0, index=self.corr_e_relation.reshape(corr_num*corr_k)) # corr_num * corr_k, 3
 
 
                 deformed_corrs = torch.bmm(
                     corr_Rs,
-                    self.corrs.unsqueeze(1).unsqueeze(-1).expand(-1,corr_k,-1,-1).reshape(corr_num*corr_k,3,1) - corr_EDNodes.unsqueeze(-1)
+                    self.corr.unsqueeze(1).unsqueeze(-1).expand(-1,corr_k,-1,-1).reshape(corr_num*corr_k,3,1) - corr_EDNodes.unsqueeze(-1)
                     ).squeeze(-1) + corr_EDNodes + corr_Ts
                 deformed_corrs = torch.sum(
                     deformed_corrs.reshape(corr_num, corr_k, 3) * self.corr_e_weight.unsqueeze(-1),

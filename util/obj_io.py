@@ -91,14 +91,17 @@ def load_obj(obj_path, tex_path=None, device='cuda'):
                 nv = len(vs)
                 vv = vs[0].split('/')
                 v0 = int(vv[0]) - 1
-                n0 = int(vv[1]) - 1 if vv[1] != "" else -1
+                n0_str = vv[2] if len(vv) >= 3 else (vv[1] if len(vv) == 2 else "")
+                n0 = int(n0_str) - 1 if n0_str != "" else -1
                 for i in range(nv - 2):
                     vv = vs[i + 1].split('/')
                     v1 = int(vv[0]) - 1
-                    n1 = int(vv[1]) - 1 if vv[1] != "" else -1
+                    n1_str = vv[2] if len(vv) >= 3 else (vv[1] if len(vv) == 2 else "")
+                    n1 = int(n1_str) - 1 if n1_str != "" else -1
                     vv = vs[i + 2].split('/')
                     v2 = int(vv[0]) - 1
-                    n2 = int(vv[1]) - 1 if vv[1] != "" else -1
+                    n2_str = vv[2] if len(vv) >= 3 else (vv[1] if len(vv) == 2 else "")
+                    n2 = int(n2_str) - 1 if n2_str != "" else -1
                     f_v_idx.append([v0, v1, v2])
                     f_vn_idx.append([n0, n1, n2])
         assert len(f_v_idx) == len (f_vn_idx)
@@ -135,13 +138,15 @@ def load_obj(obj_path, tex_path=None, device='cuda'):
 
 def save_obj(obj_path, mesh, verbose=True):
     parent_dir = os.path.dirname(obj_path)
-    os.makedirs(parent_dir, exist_ok=True)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
     obj_name = os.path.basename(obj_path).split('.')[0]
     if verbose:
         print("Writing mesh: ", obj_path)
     with open(obj_path, "w") as f:
-        f.write(f"mtllib {obj_name}.mtl\n")
-        f.write(f"usemtl {obj_name}\n")
+        if mesh.tex is not None:
+            f.write(f"mtllib {obj_name}.mtl\n")
+            f.write(f"usemtl {obj_name}\n")
 
         vs = mesh.vs.detach().cpu().numpy() if mesh.vs is not None else None
         vns = mesh.vns.detach().cpu().numpy() if mesh.vns is not None else None
@@ -185,7 +190,7 @@ def save_obj(obj_path, mesh, verbose=True):
                         f.write(' %s/%s' % (str(f_v_idx[i][j]+1), str(f_vt_idx[i][j]+1)))
                 elif vns is not None and vts is None:
                     for j in range(3):
-                        f.write(' %s/%s' % (str(f_v_idx[i][j]+1), str(f_vn_idx[i][j]+1)))
+                        f.write(' %s//%s' % (str(f_v_idx[i][j]+1), str(f_vn_idx[i][j]+1)))
                 else:
                     for j in range(3):
                         f.write(' %s' % (str(f_v_idx[i][j]+1)))
@@ -213,6 +218,9 @@ def save_obj(obj_path, mesh, verbose=True):
     return
 
 def save_ednode(obj_path, deformable_mesh):
+    parent_dir = os.path.dirname(obj_path)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
 
     with open(obj_path, 'w') as f:
         ednodes = deformable_mesh.EDNodes.detach().cpu().numpy() if deformable_mesh.EDNodes is not None else None
@@ -232,6 +240,9 @@ def save_ednode(obj_path, deformable_mesh):
 
 
 def save_ednode_and_verts(obj_path, deformable_mesh):
+    parent_dir = os.path.dirname(obj_path)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
 
     with open(obj_path, 'w') as f:
         ednodes = deformable_mesh.EDNodes.detach().cpu().numpy() if deformable_mesh.EDNodes is not None else None
