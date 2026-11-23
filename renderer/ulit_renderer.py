@@ -27,10 +27,13 @@ class NvdiffrastMeshUlitRenderer(nn.Module):
             self.glctx = dr.RasterizeGLContext() if 'opengl' == self.args['rastype'] else dr.RasterizeCudaContext()
 
         if mesh.vs.shape[-1] == 3:
-            vertex = torch.cat([mesh.vs, torch.ones([mesh.vs.shape[0], 1]).to(self.device)], dim=-1).unsqueeze(0)
+            vertex = torch.cat([mesh.vs, torch.ones([mesh.vs.shape[0], 1], device=self.device, dtype=mesh.vs.dtype)], dim=-1).unsqueeze(0)
+        else:
+            vertex = mesh.vs.unsqueeze(0) if mesh.vs.ndim == 2 else mesh.vs
         vertex_ndc = torch.bmm(self.ndc_proj, vertex.permute(0,2,1)).permute(0,2,1)
 
-        rast_out, rast_db = dr.rasterize(self.glctx, vertex_ndc.contiguous(), mesh.f_v_idx, resolution=self.render_size)
+        f_v_idx = mesh.f_v_idx.int().contiguous()
+        rast_out, rast_db = dr.rasterize(self.glctx, vertex_ndc.contiguous(), f_v_idx, resolution=self.render_size)
 
         ndc_depth = rast_out[...,2:3]
         mask = (rast_out[..., 3] > 0).float().unsqueeze(-1)
@@ -39,24 +42,24 @@ class NvdiffrastMeshUlitRenderer(nn.Module):
         img = None
         if mesh.vts is not None and mesh.tex is not None:
             if mesh.f_vt_idx is not None:
-                interp_out, inpterp_out_db = dr.interpolate(mesh.vts, rast_out, mesh.f_vt_idx, rast_db, diff_attrs='all')
+                interp_out, inpterp_out_db = dr.interpolate(mesh.vts.contiguous(), rast_out, mesh.f_vt_idx.int().contiguous(), rast_db, diff_attrs='all')
             else:
-                interp_out, inpterp_out_db = dr.interpolate(mesh.vts, rast_out, mesh.f_v_idx, rast_db, diff_attrs='all')
+                interp_out, inpterp_out_db = dr.interpolate(mesh.vts.contiguous(), rast_out, f_v_idx, rast_db, diff_attrs='all')
                 
             img = dr.texture(mesh.tex.unsqueeze(0), interp_out, inpterp_out_db)
             img = img * mask
             if antialias:
-                img = dr.antialias(img.contiguous(), rast_out, vertex_ndc.contiguous(), mesh.f_v_idx.int())
+                img = dr.antialias(img.contiguous(), rast_out, vertex_ndc.contiguous(), f_v_idx)
         elif mesh.vcs is not None:
-            interp_out, inter_out_db = dr.interpolate(mesh.vcs.contiguous(), rast_out, mesh.f_vn_idx, rast_db, diff_attrs='all')
+            interp_out, inter_out_db = dr.interpolate(mesh.vcs.contiguous(), rast_out, f_v_idx, rast_db, diff_attrs='all')
             img = interp_out * mask
             if antialias:
-                img = dr.antialias(img.contiguous(), rast_out, vertex_ndc.contiguous(), mesh.f_v_idx.int())
+                img = dr.antialias(img.contiguous(), rast_out, vertex_ndc.contiguous(), f_v_idx)
 
         if render_normal:
             mesh.update_normal()
 
-            interp_out, inter_out_db = dr.interpolate(mesh.vns.contiguous(), rast_out, mesh.f_vn_idx, rast_db, diff_attrs='all')
+            interp_out, inter_out_db = dr.interpolate(mesh.vns.contiguous(), rast_out, f_v_idx, rast_db, diff_attrs='all')
             out['normal'] = interp_out * mask
 
         depth = self.calc_ndc_to_depth(ndc_depth)
@@ -69,14 +72,21 @@ class NvdiffrastMeshUlitRenderer(nn.Module):
         return out
 
     def set_camera_intrinsic(self, intrinsic):
-        if type(intrinsic) == np.ndarray:
+        if isinstance(intrinsic, np.ndarray):
             intrinsic = torch.FloatTensor(intrinsic)
 
-        self.intrinsic = intrinsic.reshape(4,4).to(self.device)
+        if intrinsic.numel() == 9:
+            K = torch.eye(4, dtype=intrinsic.dtype)
+            K[:3, :3] = intrinsic.reshape(3, 3)
+            intrinsic = K
+        else:
+            intrinsic = intrinsic.reshape(4, 4)
+
+        self.intrinsic = intrinsic.to(self.device)
         self.ndc_proj = None
 
     def set_camera_extrinsic(self, extrinsic):
-        if type(extrinsic) == np.ndarray:
+        if isinstance(extrinsic, np.ndarray):
             extrinsic = torch.FloatTensor(extrinsic)
 
         self.extrinsic = extrinsic.reshape(4,4).to(self.device)

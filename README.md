@@ -86,6 +86,18 @@ Deforming the source mesh (blue, 2,592 verts / 5,184 faces) onto the target mesh
 
 *(Metrics measure nearest-vertex distance between meshes of differing resolutions; vertex spacing on the target mesh is ~15–28 mm.)*
 
+### Multi-View Differentiable Rendering Demo (`nvdiffrast`)
+
+To demonstrate extending the ED-Graph optimizer with 2D differentiable rendering supervision via `./renderer/ulit_renderer.py`, run:
+
+```bash
+python demo_nvdiffrast.py
+```
+
+This script optimizes `DeformableMesh` using **only 2D multi-view renders** (8 orbiting OpenCV cameras supervising antialiased silhouette, depth, and normal maps — without any 3D point-to-point correspondence), reducing 3D Chamfer distance from **37.08 mm → 11.44 mm** in 600 iterations:
+
+![nvdiffrast Multi-View Demo](./assets/demo_nvdiffrast.png)
+
 ## Configurable Energy Terms
 
 `NonRigidDeformer` in `./core/deform.py` exposes modular loss terms that can be toggled or extended via `deformer_args`:
@@ -103,7 +115,8 @@ Deforming the source mesh (blue, 2,592 verts / 5,184 faces) onto the target mesh
 
 ## Core Files
 
-* `./nrd.py` — End-to-end runnable demo script with CLI arguments, ED-Graph export, and registration metrics.
+* `./nrd.py` — End-to-end runnable 3D registration demo script with CLI arguments, ED-Graph export, and registration metrics.
+* `./demo_nvdiffrast.py` — Multi-view differentiable rendering non-rigid deformation demo using `NvdiffrastMeshUlitRenderer` (2D silhouette/depth/normal supervision only).
 * `./core/deform.py` — `NonRigidDeformer` optimization loop with modular, easily extensible loss terms.
 * `./util/mesh.py` — `Mesh` and `DeformableMesh` classes, FPS ED-node sampling, Euclidean & geodesic skinning, and deformation forward pass.
 * `./util/mesh_util.py` — Geometry utilities (normals, edges, connected faces, Laplacian, FPS sampling, and PyTorch3D / pure-PyTorch `knn_points`).
